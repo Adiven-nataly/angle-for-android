@@ -65,12 +65,8 @@ jobs:
           
       - name: Initialize ANGLE repository
         run: |
-          if [[ ! -d "angle/third_party" || ! -d "angle/.git" ]]; then
-            sleep 10  # Tambahkan delay untuk menghindari rate limit
-            gclient sync
-          else
-            echo "Using cached dependencies."
-          fi
+          echo "running gclient sync to ensure dependencies are up-to-date.."
+          gclient sync
           
       - name: Ensure buildtools are downloaded
         run: |
