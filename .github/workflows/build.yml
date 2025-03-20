@@ -27,6 +27,12 @@ jobs:
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           echo "$GITHUB_WORKSPACE/depot_tools" >> $GITHUB_PATH
 
+      - name: Initialize depot_tools
+        run: |
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          echo "PATH=$GITHUB_WORKSPACE/depot_tools:$PATH" >> $GITHUB_ENV
+          gclient
+
       - name: Configure .gclient
         run: |
           cat <<EOL > .gclient
@@ -64,11 +70,16 @@ jobs:
       - name: Initialize ANGLE repository
         run: |
           if [[ ! -d "angle/third_party" || ! -d "angle/.git" ]]; then
-            sleep 10
+            sleep 10  # Tambahkan delay untuk menghindari rate limit
             gclient sync
           else
             echo "Using cached dependencies."
           fi
+
+      - name: Ensure buildtools are downloaded
+        run: |
+          cd angle
+          gclient runhooks
 
       - name: Install Android NDK manually
         run: |
@@ -83,6 +94,11 @@ jobs:
         run: |
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
           echo "PATH=$ANDROID_HOME/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Verify gn executable
+        run: |
+          which gn
+          gn --version
 
       - name: Generate build files for Android (32-bit)
         run: |
