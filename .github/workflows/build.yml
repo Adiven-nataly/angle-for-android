@@ -31,7 +31,6 @@ jobs:
         run: |
           export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
           echo "PATH=$GITHUB_WORKSPACE/depot_tools:$PATH" >> $GITHUB_ENV
-          gclient
           
       - name: Configure .gclient
         run: |
@@ -52,39 +51,10 @@ jobs:
           target_os = ['android']
           EOL
           
-      - name: Cache ANGLE dependencies
-        id: cache-angle
-        uses: actions/cache@v3
-        with:
-          path: |
-            angle/third_party
-            angle/.git
-          key: angle-deps-${{ runner.os }}-${{ hashFiles('.gclient') }}
-          restore-keys: |
-            angle-deps-${{ runner.os }}-
-          
       - name: Initialize ANGLE repository
         run: |
           echo "running gclient sync to ensure dependencies are up-to-date.."
           gclient sync
-          
-      - name: Ensure buildtools are downloaded
-        run: |
-          cd angle
-          gclient runhooks
-
-      - name: Verify gn executable
-        run: |
-          if [[ -f "buildtools/linux64/gn/gn" ]]; then
-            echo "gn found in buildtools/linux64/gn/gn"
-            export PATH="$GITHUB_WORKSPACE/angle/buildtools/linux64/gn:$PATH"
-            echo "PATH=$GITHUB_WORKSPACE/angle/buildtools/linux64/gn:$PATH" >> $GITHUB_ENV
-          else
-            echo "Error: gn not found in buildtools/linux64/gn/gn"
-            exit 1
-          fi
-
-          gn --version
           
       - name: Install Android NDK manually
         run: |
@@ -106,7 +76,7 @@ jobs:
           cd angle
           gn gen out/Android-arm --args='
             target_os = "android"
-            target_cpu = "arm"  # 32-bit
+            target_cpu = "arm"
             is_component_build = false
             is_debug = false
             angle_assert_always_on = true
