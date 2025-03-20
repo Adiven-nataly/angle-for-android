@@ -75,7 +75,15 @@ jobs:
 
       - name: Verify gn executable
         run: |
-          which gn
+          if [[ -f "buildtools/linux64/gn/gn" ]]; then
+            echo "gn found in buildtools/linux64/gn/gn"
+            export PATH="$GITHUB_WORKSPACE/angle/buildtools/linux64/gn:$PATH"
+            echo "PATH=$GITHUB_WORKSPACE/angle/buildtools/linux64/gn:$PATH" >> $GITHUB_ENV
+          else
+            echo "Error: gn not found in buildtools/linux64/gn/gn"
+            exit 1
+          fi
+
           gn --version
           
       - name: Install Android NDK manually
