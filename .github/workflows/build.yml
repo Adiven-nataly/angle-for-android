@@ -1,4 +1,4 @@
-name: Build ANGLE for Android
+name: Build ANGLE for Android (32-bit and 64-bit)
 
 on:
   push:
@@ -84,31 +84,54 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
           echo "PATH=$ANDROID_HOME/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_ENV
 
-      - name: Generate build files for Android
+      - name: Generate build files for Android (32-bit)
         run: |
           export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
           cd angle
-          gn gen out/Android --args='
+          gn gen out/Android-arm --args='
             target_os = "android"
-            target_cpu = "arm64"
+            target_cpu = "arm"  # 32-bit
             is_component_build = false
             is_debug = false
             angle_assert_always_on = true
           '
 
-      - name: Build ANGLE APK
+      - name: Build for Android (32-bit)
         run: |
           export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
           cd angle
-          autoninja -C out/Android angle_apks
+          autoninja -C out/Android-arm angle_apks
 
-      - name: List files in out/Android
+      - name: Generate build files for Android (64-bit)
         run: |
-          cd angle/out/Android
-          ls -la
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
+          cd angle
+          gn gen out/Android-arm64 --args='
+            target_os = "android"
+            target_cpu = "arm64"  # 64-bit
+            is_component_build = false
+            is_debug = false
+            angle_assert_always_on = true
+          '
 
-      - name: Upload APK as artifact
+      - name: Build for Android (64-bit)
+        run: |
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
+          cd angle
+          autoninja -C out/Android-arm64 angle_apks
+
+      - name: Combine 32-bit and 64-bit libraries
+        run: |
+          mkdir -p angle/out/Android-combined/apks
+          unzip angle/out/Android-arm/apks/AngleLibraries.apk -d angle/out/Android-combined/32bit
+          unzip angle/out/Android-arm64/apks/AngleLibraries.apk -d angle/out/Android-combined/64bit
+          cp -r angle/out/Android-combined/32bit/lib/armeabi-v7a angle/out/Android-combined/64bit/lib/
+          cd angle/out/Android-combined/64bit
+          zip -r ../apks/AngleLibraries_combined.apk .
+          cd ../../../../
+
+      - name: Upload combined APK as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AngleLibraries.apk
-          path: angle/out/Android/apks/AngleLibraries.apk
+          name: AngleLibraries_combined.apk
+          path: angle/out/Android-combined/apks/AngleLibraries_combined.apk
