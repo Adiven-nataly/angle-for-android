@@ -13,54 +13,102 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Set up environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip ninja-build clang unzip
+          pip3 install gn
+
+      - name: Install depot_tools
+        run: |
+          git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+          echo "$GITHUB_WORKSPACE/depot_tools" >> $GITHUB_PATH
+
+      - name: Configure .gclient
+        run: |
+          cat <<EOL > .gclient
+          solutions = [
+              {
+                  "name": "angle",
+                  "url": "https://github.com/google/angle.git",
+                  "deps_file": "DEPS",
+                  "managed": False,
+                  "custom_deps": {
+                      "angle/third_party/VK-GL-CTS/src": None,
+                      "angle/third_party/llvm/src": None,
+                  },
+                  "custom_vars": {},
+              },
+          ]
+          target_os = ['android']
+          EOL
+
+      - name: Cache ANGLE dependencies
+        id: cache-angle
+        uses: actions/cache@v3
         with:
-          python-version: '3.10'
+          path: |
+            angle/third_party
+            angle/.git
+          key: angle-deps-${{ runner.os }}-${{ hashFiles('.gclient') }}
+          restore-keys: |
+            angle-deps-${{ runner.os }}-
 
-      - name: Install dependencies
+      - name: Clean up googletest directory
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git python3 curl unzip
-          curl -fsSL https://bazel.build/bazel-release.pub.gpg | gpg --dearmor >bazel-archive-keyring.gpg
-          sudo mv bazel-archive-keyring.gpg /usr/share/keyrings/bazel-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/bazel-archive-keyring.gpg] https://storage.googleapis.com/bazel-apt stable jdk1.8" | sudo tee /etc/apt/sources.list.d/bazel.list
-          sudo apt-get update
-          sudo apt-get install -y bazel
+          rm -rf angle/third_party/googletest
 
-      - name: Install Android NDK
+      - name: Initialize ANGLE repository
         run: |
-          mkdir -p ~/android
-          cd ~/android
-          wget https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
-          unzip android-ndk-r25b-linux.zip
-          echo "export ANDROID_NDK_HOME=~/android/android-ndk-r25b" >> $GITHUB_ENV
+          if [[ ! -d "angle/third_party" || ! -d "angle/.git" ]]; then
+            sleep 10
+            gclient sync
+          else
+            echo "Using cached dependencies."
+          fi
 
-      - name: Bootstrap ANGLE
+      - name: Install Android NDK manually
         run: |
-          python3 scripts/bootstrap.py
-          echo "target_os = ['android']" >> .gclient
-          gclient sync
+          mkdir -p $ANDROID_HOME/ndk
+          curl -o ndk.zip https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+          unzip ndk.zip -d $ANDROID_HOME/ndk
+          mv $ANDROID_HOME/ndk/android-ndk-r25b $ANDROID_HOME/ndk/25.1.8937393
+          rm ndk.zip
+          echo "NDK installed at $ANDROID_HOME/ndk/25.1.8937393"
 
-      - name: Configure GN args
+      - name: Set NDK environment variables
         run: |
-          mkdir -p out/Android
-          echo 'target_os = "android"' > out/Android/args.gn
-          echo 'target_cpu = "arm64"' >> out/Android/args.gn
-          echo 'is_component_build = false' >> out/Android/args.gn
-          echo 'is_debug = false' >> out/Android/args.gn
-          echo 'angle_assert_always_on = true' >> out/Android/args.gn
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
+          echo "PATH=$ANDROID_HOME/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_ENV
 
-      - name: Build ANGLE
+      - name: Generate build files for Android
         run: |
-          gn gen out/Android
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
+          cd angle
+          gn gen out/Android --args='
+            target_os = "android"
+            target_cpu = "arm64"
+            is_component_build = false
+            is_debug = false
+            angle_assert_always_on = true
+          '
+
+      - name: Build ANGLE APK
+        run: |
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
+          cd angle
           autoninja -C out/Android angle_apks
+
+      - name: List files in out/Android
+        run: |
+          cd angle/out/Android
+          ls -la
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: AngleLibraries.apk
-          path: out/Android/apks/AngleLibraries.apk
+          path: angle/out/Android/apks/AngleLibraries.apk
