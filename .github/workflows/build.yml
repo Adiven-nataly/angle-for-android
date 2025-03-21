@@ -1,4 +1,4 @@
-name: Build ANGLE for Android
+name: Build ANGLE for Android (32-bit and 64-bit)
 
 on:
   push:
@@ -21,10 +21,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3 python3-pip ninja-build clang unzip
           pip3 install gn
+
       - name: Install depot_tools
         run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           echo "$GITHUB_WORKSPACE/depot_tools" >> $GITHUB_PATH
+
+      - name: Initialize depot_tools
+        run: |
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          echo "PATH=$GITHUB_WORKSPACE/depot_tools:$PATH" >> $GITHUB_ENV
+
       - name: Configure .gclient
         run: |
           cat <<EOL > .gclient
@@ -43,12 +50,12 @@ jobs:
           ]
           target_os = ['android']
           EOL
-      
+
       - name: Initialize ANGLE repository
         run: |
-          echo "running gclient sync to ensure dependencies are up-to-date.."
+          echo "Running gclient sync to ensure dependencies are up-to-date..."
           gclient sync
-          
+
       - name: Install Android NDK manually
         run: |
           mkdir -p $ANDROID_HOME/ndk
@@ -57,36 +64,63 @@ jobs:
           mv $ANDROID_HOME/ndk/android-ndk-r25b $ANDROID_HOME/ndk/25.1.8937393
           rm ndk.zip
           echo "NDK installed at $ANDROID_HOME/ndk/25.1.8937393"
-          
+
       - name: Set NDK environment variables
         run: |
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
           echo "PATH=$ANDROID_HOME/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_ENV
-      - name: Generate build files for Android
+
+      - name: Generate build files for Android (32-bit)
         run: |
           export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
           cd angle
-          gn gen out/Android --args='
+          gn gen out/Android-arm --args='
+            target_os = "android"
+            target_cpu = "arm"
+            is_component_build = false
+            is_debug = true
+            angle_assert_always_on = true
+          '
+
+      - name: Build for Android (32-bit)
+        run: |
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
+          cd angle
+          autoninja -C out/Android-arm angle_apks
+
+      - name: Generate build files for Android (64-bit)
+        run: |
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
+          cd angle
+          gn gen out/Android-arm64 --args='
             target_os = "android"
             target_cpu = "arm64"
             is_component_build = false
             is_debug = true
             angle_assert_always_on = true
           '
-          
-      - name: Build ANGLE APK
+
+      - name: Build for Android (64-bit)
         run: |
           export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
           cd angle
-          autoninja -C out/Android angle_apks
+          autoninja -C out/Android-arm64 angle_apks
           
-      - name: List files in out/Android
+      - name: Combine 32-bit and 64-bit libraries
         run: |
-          cd angle/out/Android
-          ls -la
-          
-      - name: Upload APK as artifact
+          mkdir -p angle/out/Android-combined/apks
+          unzip angle/out/Android-arm/apks/AngleLibraries.apk -d angle/out/Android-combined/32bit
+          unzip angle/out/Android-arm64/apks/AngleLibraries.apk -d angle/out/Android-combined/64bit
+          mkdir -p angle/out/Android-combined/final/lib/armeabi-v7a
+          mkdir -p angle/out/Android-combined/final/lib/arm64-v8a
+          cp -r angle/out/Android-combined/32bit/lib/armeabi-v7a/* angle/out/Android-combined/final/lib/armeabi-v7a/
+          cp -r angle/out/Android-combined/64bit/lib/arm64-v8a/* angle/out/Android-combined/final/lib/arm64-v8a/
+          cp -r angle/out/Android-combined/64bit/* angle/out/Android-combined/final/
+          cd angle/out/Android-combined/final
+          zip -r ../apks/AngleLibraries_combined.apk .
+
+      - name: Upload combined APK as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AngleLibraries.apk
-          path: angle/out/Android/apks/AngleLibraries.apk
+          name: AngleLibraries_combined.apk
+          path: angle/out/Android-combined/apks/AngleLibraries_combined.apk
