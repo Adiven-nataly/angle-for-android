@@ -43,27 +43,12 @@ jobs:
           ]
           target_os = ['android']
           EOL
-      - name: Cache ANGLE dependencies
-        id: cache-angle
-        uses: actions/cache@v3
-        with:
-          path: |
-            angle/third_party
-            angle/.git
-          key: angle-deps-${{ runner.os }}-${{ hashFiles('.gclient') }}
-          restore-keys: |
-            angle-deps-${{ runner.os }}-
-      - name: Clean up googletest directory
-        run: |
-          rm -rf angle/third_party/googletest
+      
       - name: Initialize ANGLE repository
         run: |
-          if [[ ! -d "angle/third_party" || ! -d "angle/.git" ]]; then
-            sleep 10
-            gclient sync
-          else
-            echo "Using cached dependencies."
-          fi
+          echo "running gclient sync to ensure dependencies are up-to-date.."
+          gclient sync
+          
       - name: Install Android NDK manually
         run: |
           mkdir -p $ANDROID_HOME/ndk
@@ -72,6 +57,7 @@ jobs:
           mv $ANDROID_HOME/ndk/android-ndk-r25b $ANDROID_HOME/ndk/25.1.8937393
           rm ndk.zip
           echo "NDK installed at $ANDROID_HOME/ndk/25.1.8937393"
+          
       - name: Set NDK environment variables
         run: |
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
@@ -87,15 +73,18 @@ jobs:
             is_debug = true
             angle_assert_always_on = true
           '
+          
       - name: Build ANGLE APK
         run: |
           export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
           cd angle
           autoninja -C out/Android angle_apks
+          
       - name: List files in out/Android
         run: |
           cd angle/out/Android
           ls -la
+          
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
