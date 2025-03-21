@@ -96,7 +96,7 @@ jobs:
             target_os = "android"
             target_cpu = "arm64"
             is_component_build = false
-            is_debug = false
+            is_debug = true
             angle_assert_always_on = true
           '
 
