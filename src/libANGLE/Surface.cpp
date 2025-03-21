@@ -415,8 +415,7 @@ void Surface::setMultisampleResolve(EGLenum resolve)
 
 void Surface::setSwapBehavior(EGLenum behavior)
 {
-    // Behaviour is set but ignored
-    UNIMPLEMENTED();
+    // change this
     mState.swapBehavior = behavior;
 }
 
