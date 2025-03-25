@@ -1,59 +1,99 @@
-name: Build ANGLE shared libraries
+name: Build ANGLE for Android (32-bit and 64-bit)
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout ANGLE Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          repository: Adiven-nataly/angle-for-android
-          submodules: 'recursive'
-          fetch-depth: 1
 
-      - name: Setup Depot Tools
+      - name: Set up environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip ninja-build clang unzip apksigner openjdk-17-jdk
+          pip3 install gn
+          
+      - name: Install depot_tools
         run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           echo "$GITHUB_WORKSPACE/depot_tools" >> $GITHUB_PATH
-
-      - name: Install Dependencies
+          
+      - name: Initialize depot_tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3 python3-pip ninja-build
-
-      - name: Sync Public Dependencies
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          echo "PATH=$GITHUB_WORKSPACE/depot_tools:$PATH" >> $GITHUB_ENV
+          
+      - name: Configure .gclient
         run: |
-          # Hanya sync dependensi publik, skip internal
-          gclient sync --no-history --ignore_deps=third_party/gles1_conform,third_party/gles2_conform
-
-      - name: Setup Android NDK
-        uses: android-actions/setup-android@v2
-        with:
-          ndk-version: "25.2.9519653"
-
-      - name: Generate GN Build Files
+          cat <<EOL > .gclient
+          solutions = [
+              {
+                  "name": "angle",
+                  "url": "https://github.com/google/angle.git",
+                  "deps_file": "DEPS",
+                  "managed": False,
+                  "custom_deps": {
+                      "angle/third_party/VK-GL-CTS/src": None,
+                      "angle/third_party/llvm/src": None,
+                  },
+                  "custom_vars": {},
+              },
+          ]
+          target_os = ['android']
+          EOL
+          
+      - name: Initialize ANGLE repository
         run: |
-          mkdir -p out/Android-arm64
+          echo "Running gclient sync to ensure dependencies are up-to-date..."
+          gclient sync
+          
+      - name: Install Android NDK manually
+        run: |
+          mkdir -p $ANDROID_HOME/ndk
+          curl -o ndk.zip https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+          unzip ndk.zip -d $ANDROID_HOME/ndk
+          mv $ANDROID_HOME/ndk/android-ndk-r25b $ANDROID_HOME/ndk/25.1.8937393
+          rm ndk.zip
+          echo "NDK installed at $ANDROID_HOME/ndk/25.1.8937393"
+          
+      - name: Set NDK environment variables
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
+          echo "PATH=$ANDROID_HOME/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_ENV
+          
+      - name: Generate build files for Android (64-bit)
+        run: |
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
+          cd angle
           gn gen out/Android-arm64 --args='
             target_os = "android"
             target_cpu = "arm64"
             is_debug = false
             angle_shared_lib = true
             angle_build_all = false
-            '
+            angle_enable_gl = true
+          '
 
-      - name: Build libEGL_angle.so
+      - name: Build ANGLE Libraries (64-bit)
         run: |
-          ninja -C out/Android-arm64 libEGL
+          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
+          cd angle
+          autoninja -C out/Android-arm64 libEGL libGLESv2
 
-      - name: Upload Artifact
+      - name: Upload Libraries
         uses: actions/upload-artifact@v4
         with:
-          name: libEGL_angle_android_arm64
-          path: out/Android-arm64/libEGL_angle.so
+          name: angle_libs_arm64
+          path: |
+            angle/out/Android-arm64/libEGL_angle.so
+            angle/out/Android-arm64/libGLESv2_angle.so
+          
