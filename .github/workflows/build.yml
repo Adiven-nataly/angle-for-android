@@ -51,7 +51,7 @@ jobs:
           ninja -C out/Android-arm64 libEGL
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: libEGL_angle_android_arm64
           path: |
