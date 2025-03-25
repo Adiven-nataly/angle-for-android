@@ -1,136 +1,59 @@
-name: Build ANGLE for Android (32-bit and 64-bit)
+name: Build ANGLE shared libraries for Android
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout ANGLE Repository
         uses: actions/checkout@v4
+        with:
+          repository: Adiven-nataly/angle-for-android
+          submodules: recursive
 
-      - name: Set up environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3 python3-pip ninja-build clang unzip apksigner openjdk-17-jdk
-          pip3 install gn
-
-      - name: Install depot_tools
+      - name: Setup Depot Tools
         run: |
           git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
           echo "$GITHUB_WORKSPACE/depot_tools" >> $GITHUB_PATH
 
-      - name: Initialize depot_tools
+      - name: Install Dependencies
         run: |
-          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
-          echo "PATH=$GITHUB_WORKSPACE/depot_tools:$PATH" >> $GITHUB_ENV
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip ninja-build
 
-      - name: Configure .gclient
+      - name: Sync ANGLE Dependencies
         run: |
-          cat <<EOL > .gclient
-          solutions = [
-              {
-                  "name": "angle",
-                  "url": "https://github.com/google/angle.git",
-                  "deps_file": "DEPS",
-                  "managed": False,
-                  "custom_deps": {
-                      "angle/third_party/VK-GL-CTS/src": None,
-                      "angle/third_party/llvm/src": None,
-                  },
-                  "custom_vars": {},
-              },
-          ]
-          target_os = ['android']
-          EOL
-
-      - name: Initialize ANGLE repository
-        run: |
-          echo "Running gclient sync to ensure dependencies are up-to-date..."
           gclient sync
 
-      - name: Install Android NDK manually
-        run: |
-          mkdir -p $ANDROID_HOME/ndk
-          curl -o ndk.zip https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
-          unzip ndk.zip -d $ANDROID_HOME/ndk
-          mv $ANDROID_HOME/ndk/android-ndk-r25b $ANDROID_HOME/ndk/25.1.8937393
-          rm ndk.zip
-          echo "NDK installed at $ANDROID_HOME/ndk/25.1.8937393"
+      - name: Setup Android NDK
+        uses: android-actions/setup-android@v2
+        with:
+          ndk-version: "25.2.9519653"
 
-      - name: Set NDK environment variables
+      - name: Generate GN Build Files
         run: |
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393" >> $GITHUB_ENV
-          echo "PATH=$ANDROID_HOME/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_ENV
-
-      - name: Generate build files for Android (32-bit)
-        run: |
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
-          cd angle
-          gn gen out/Android-arm --args='
-            target_os = "android"
-            target_cpu = "arm"
-            is_component_build = false
-            is_debug = true
-            angle_assert_always_on = true
-          '
-          
-      - name: Build for Android (32-bit)
-        run: |
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
-          cd angle
-          autoninja -C out/Android-arm angle_apks
-
-      - name: Generate build files for Android (64-bit)
-        run: |
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
-          cd angle
+          mkdir -p out/Android-arm64
           gn gen out/Android-arm64 --args='
             target_os = "android"
             target_cpu = "arm64"
-            is_component_build = false
-            is_debug = true
-            angle_assert_always_on = true
+            is_debug = false
+            angle_shared_lib = true
+            angle_build_all = false
           '
 
-      - name: Build for Android (64-bit)
+      - name: Build libEGL_angle.so
         run: |
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.1.8937393
-          cd angle
-          autoninja -C out/Android-arm64 angle_apks
+          ninja -C out/Android-arm64 libEGL
 
-      - name: Combine 32-bit and 64-bit libraries
-        run: |
-          mkdir -p angle/out/Android-combined/apks
-          unzip angle/out/Android-arm/apks/AngleLibraries.apk -d angle/out/Android-combined/32bit
-          unzip angle/out/Android-arm64/apks/AngleLibraries.apk -d angle/out/Android-combined/64bit
-          mkdir -p angle/out/Android-combined/final/lib/armeabi-v7a
-          mkdir -p angle/out/Android-combined/final/lib/arm64-v8a
-          cp -r angle/out/Android-combined/32bit/lib/armeabi-v7a/* angle/out/Android-combined/final/lib/armeabi-v7a/
-          cp -r angle/out/Android-combined/64bit/lib/arm64-v8a/* angle/out/Android-combined/final/lib/arm64-v8a/
-          cp -r angle/out/Android-combined/64bit/* angle/out/Android-combined/final
-          cd angle/out/Android-combined/final
-          zip -r ../apks/AngleLibraries_combined.apk .
-
-      - name: Decode Keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > my-release-key.jks
-
-      - name: Sign APK
-        run: |
-          apksigner sign --ks my-release-key.jks --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} --key-pass pass:${{ secrets.KEYSTORE_PASSWORD }} --out AngleLibraries_signed.apk angle/out/Android-combined/apks/AngleLibraries_combined.apk
-
-          apksigner verify --verbose AngleLibraries_signed.apk
-
-      - name: Upload signed APK as artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
         with:
-          name: AngleLibraries_signed.apk
-          path: AngleLibraries_signed.apk
+          name: libEGL_angle_android_arm64
+          path: |
+            out/Android-arm64/libEGL_angle.so
+            out/Android-arm64/libGLESv2_angle.so
